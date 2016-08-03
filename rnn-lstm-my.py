@@ -108,7 +108,7 @@ print('train output: ', len(train_output))
 print('trains_length: ', len(train_output))
 
 
-batch_size = 1
+batch_size = 2
 num_hidden = 24
 frame_size = 1
 
@@ -118,7 +118,7 @@ cell = tf.nn.rnn_cell.BasicLSTMCell(num_hidden, state_is_tuple=True)
 
 num_inputs = tf.placeholder(tf.int32, name='NumInputs')
 
-inputs = [tf.placeholder(tf.float32,shape=[batch_size, max_length], name='InputData') for _ in range(batch_size)]
+inputs = [tf.placeholder(tf.float32,shape=[1, max_length], name='InputData') for _ in range(batch_size)]
 result = tf.placeholder(tf.float32, shape=[batch_size, 1], name='OutputData')
 
 
@@ -136,7 +136,7 @@ outputs, states = tf.nn.rnn(cell, inputs, dtype=tf.float32)
 # tf.to_float(o.get_shape()[0]) #
 #outputs_last = outputs[-1]   #we actually only need the last output from the model, ie: last element of outputs
 
-outputs2 = tf.Print(outputs, [outputs], 'Last: ', name="Last")
+outputs2 = tf.Print(outputs, [outputs], 'Last: ', name="Last", summarize=800)
 
 tf_weight = tf.Variable(tf.truncated_normal([batch_size, num_hidden, frame_size]), name='Weight')
 tf_bias   = tf.Variable(tf.constant(0.1, shape=[batch_size]), name='Bias')
@@ -151,11 +151,13 @@ print('targets ', result.get_shape())
 print('RNN input ', type(inputs))
 print('RNN input len()', len(inputs))
 print('RNN input[0] ', inputs[0].get_shape())
-print('RNN output ', outputs2.get_shape())
+#print('RNN output ', outputs2.get_shape())
 
 tf_prediction = tf.batch_matmul(outputs2, weight) + bias
-prediction = tf.Print(tf_prediction, [tf_prediction], 'prediction: ')
-tf_result = tf.Print(result, [result], 'result: ')
+prediction = tf.Print(tf_prediction, [tf_prediction, tf_prediction.get_shape()], 'prediction: ')
+
+#tf_result = tf.Print(result, [result], 'result: ')
+tf_result = result
 
 print('prediction ', prediction.get_shape())
 
@@ -190,7 +192,7 @@ init_op = tf.initialize_all_variables()
 sess = tf.Session()
 sess.run(init_op)
 
-no_of_batches = int(len(train_input)) / batch_size
+no_of_batches = 3#int(len(train_input)) / batch_size
 epoch = 1
 
 val_dict = get_input_dict(val_input, val_output, train_length, inputs, batch_size)
@@ -221,6 +223,10 @@ for i in range(epoch):
 
 	#print("result dim: ", train_output.shape)
 	#print('eval w2: ', weight.eval(session=sess))
+	print("result: ", tf_result)
+	print("result len: ", tf_result.get_shape())
+	print("prediction: ", prediction)
+	print("prediction len: ", prediction.get_shape())
 
 
 	c_val = sess.run(error, feed_dict = val_dict )
