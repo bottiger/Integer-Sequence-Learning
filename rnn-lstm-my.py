@@ -105,6 +105,10 @@ print('train input: ', len(train_input))
 print('train output: ', len(train_output))
 print('trains_length: ', len(train_output))
 
+print_test_data = 50
+print('sequence: ', train_input[print_test_data])
+print('sequence next: ', train_output[print_test_data])
+
 
 batch_size = 10
 num_hidden = 24
