@@ -64,6 +64,9 @@ def tf_data_length(data):
     return length
 
 def get_input_dict(data_input, data_output, sequence_length, arg_inputs, arg_num_inputs):
+	"""This function is suppose to return a dict which can be used to 
+	initialize all the placeholders in the graph.
+	"""
 	in_data = {}
 	count = len(data_output)
 	print("count ",)
@@ -80,11 +83,6 @@ def get_input_dict(data_input, data_output, sequence_length, arg_inputs, arg_num
 
 train_id, train_values, train_solutions, train_lengths, max_length = read_data_file(train_data_file)
 training_matrix = prepare_training_matrix(train_values, max_length)
-
-# Not for testing while developing
-#test_id, test_values, test_solutions, max_length_test = read_data_file(test_data_file)
-#testing_matrix = prepare_training_matrix(test_values, max_length)
-
 
 
 NUM_EXAMPLES = 100
@@ -108,7 +106,7 @@ print('train output: ', len(train_output))
 print('trains_length: ', len(train_output))
 
 
-batch_size = 2
+batch_size = 10
 num_hidden = 24
 frame_size = 1
 
@@ -117,13 +115,14 @@ train_count = batch_size
 cell = tf.nn.rnn_cell.BasicLSTMCell(num_hidden, state_is_tuple=True)
 
 num_inputs = tf.placeholder(tf.int32, name='NumInputs')
+seq_length = tf.placeholder(tf.int32, shape=[batch_size], name='NumInputs')
 
 inputs = [tf.placeholder(tf.float32,shape=[1, max_length], name='InputData') for _ in range(batch_size)]
 result = tf.placeholder(tf.float32, shape=[batch_size, 1], name='OutputData')
 
 
 #inputs = tf.Print(tf_inputs, [tf_inputs, len(tf_inputs)], 'Inputs: ')
-#seq_length = tf.Print(tf_seq_length, [tf_seq_length, tf_seq_length.get_shape()], 'SequenceLength: ')
+tf_seq_length = tf.Print(seq_length, [seq_length, seq_length.get_shape()], 'SequenceLength: ')
 
 # , sequence_length=tf_data_length(data)
 # , sequence_length=seq_length
@@ -192,7 +191,7 @@ init_op = tf.initialize_all_variables()
 sess = tf.Session()
 sess.run(init_op)
 
-no_of_batches = 3#int(len(train_input)) / batch_size
+no_of_batches = int(len(train_input)) / batch_size
 epoch = 1
 
 val_dict = get_input_dict(val_input, val_output, train_length, inputs, batch_size)
@@ -203,26 +202,19 @@ for i in range(epoch):
 
 	print('eval w: ', weight.eval(session=sess))
 
-	#in_data = {}
-	#for i in range(train_count):
-	#	v = inputs[i]
-	#	k = train_input[i].transpose()
-	#	print(i)
-	#	in_data.update({inputs[i]: k})
-	#in_data.update({result: train_output})
-
+	# inputs batch
 	t_i = train_input[ptr:ptr+batch_size]
+
+	# output batch
 	t_o = train_output[ptr:ptr+batch_size]
+
+	# sequence lengths
 	t_l = train_length[ptr:ptr+batch_size]
 
 	sess.run(minimize,feed_dict=get_input_dict(t_i, t_o, t_l, inputs, batch_size))
 
 	ptr += batch_size
 
-	#print('eval outputs: ', outputs.eval(session=sess))
-
-	#print("result dim: ", train_output.shape)
-	#print('eval w2: ', weight.eval(session=sess))
 	print("result: ", tf_result)
 	print("result len: ", tf_result.get_shape())
 	print("prediction: ", prediction)
