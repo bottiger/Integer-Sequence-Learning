@@ -203,26 +203,19 @@ for i in range(epoch):
 
 	print('eval w: ', weight.eval(session=sess))
 
-	#in_data = {}
-	#for i in range(train_count):
-	#	v = inputs[i]
-	#	k = train_input[i].transpose()
-	#	print(i)
-	#	in_data.update({inputs[i]: k})
-	#in_data.update({result: train_output})
-
+	# inputs batch
 	t_i = train_input[ptr:ptr+batch_size]
+
+	# output batch
 	t_o = train_output[ptr:ptr+batch_size]
+
+	# sequence lengths
 	t_l = train_length[ptr:ptr+batch_size]
 
 	sess.run(minimize,feed_dict=get_input_dict(t_i, t_o, t_l, inputs, batch_size))
 
 	ptr += batch_size
 
-	#print('eval outputs: ', outputs.eval(session=sess))
-
-	#print("result dim: ", train_output.shape)
-	#print('eval w2: ', weight.eval(session=sess))
 	print("result: ", tf_result)
 	print("result len: ", tf_result.get_shape())
 	print("prediction: ", prediction)
