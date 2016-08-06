@@ -115,8 +115,8 @@ def variable_summaries(var, name):
     tf.histogram_summary(name, var)
 
 
-def get_training_data(force=False):
-    set_filename = 'train.pickle'
+def get_training_data(name, amount, offset, force=False):
+    set_filename = name + '.pickle'
     key_in     = 'input'
     key_out    = 'output'
     key_length = 'length'
@@ -139,7 +139,9 @@ def get_training_data(force=False):
         train_output = np.zeros((num_train, 1))
         train_length = np.zeros((num_train, 1))
 
-        for i in range(num_train):
+        #for i in range(num_train):
+        for j in range(amount):
+            i = j + offset
             #if i % 1000 == 0:
                 #print(i)
             max_value = train_solutions[i] #max(max(training_matrix[i]), train_solutions[i])
@@ -158,7 +160,7 @@ def get_training_data(force=False):
 
         try:
             with open(set_filename, 'wb') as f:
-                print('Persist pickle file')
+                print('Persist pickle file: ', name)
                 pickle.dump(dataset, f, pickle.HIGHEST_PROTOCOL)
         except Exception as e:
             print('Unable to save data to', set_filename, ':', e)
@@ -167,7 +169,7 @@ def get_training_data(force=False):
     else:
         try:
           with open(set_filename, 'rb') as f:
-	    print('Load persisted file')
+	    print('Load persisted file: ', name)
             train_data_set = pickle.load(f)
             
 	    train_input = train_data_set[key_in]
@@ -184,21 +186,23 @@ def get_training_data(force=False):
 NUM_EXAMPLES = 30000
 num_test = 3000;
 
-train_input, train_output, train_length = get_training_data()
+# dataset has between 110720 and 113844 samples
+train_input, train_output, train_length = get_training_data('train', 50000, 0)
+test_input, test_output, test_length = get_training_data('test', 25000, 50000)
+val_input, val_output, val_length = get_training_data('val', 25000, 75000)
 
-exit()
 
 #train_input = training_matrix[:NUM_EXAMPLES]
 #train_output = train_solutions[:NUM_EXAMPLES]
 #train_length = train_lengths[:NUM_EXAMPLES]
 
-test_input = training_matrix[NUM_EXAMPLES:NUM_EXAMPLES+NUM_EXAMPLES]
-test_output = train_solutions[NUM_EXAMPLES:NUM_EXAMPLES+NUM_EXAMPLES]
-test_length = train_lengths[:NUM_EXAMPLES]
+#test_input = training_matrix[NUM_EXAMPLES:NUM_EXAMPLES+NUM_EXAMPLES]
+#test_output = train_solutions[NUM_EXAMPLES:NUM_EXAMPLES+NUM_EXAMPLES]
+#test_length = train_lengths[:NUM_EXAMPLES]
 
-val_input = training_matrix[2*NUM_EXAMPLES:3*NUM_EXAMPLES]
-val_output = train_solutions[2*NUM_EXAMPLES:3*NUM_EXAMPLES]
-val_length = train_lengths[:NUM_EXAMPLES]
+#val_input = training_matrix[2*NUM_EXAMPLES:3*NUM_EXAMPLES]
+#val_output = train_solutions[2*NUM_EXAMPLES:3*NUM_EXAMPLES]
+#val_length = train_lengths[:NUM_EXAMPLES]
 
 
 print "test and training data loaded"
