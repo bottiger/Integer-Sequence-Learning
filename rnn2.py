@@ -3,6 +3,14 @@ import random
 from random import shuffle
 import tensorflow as tf
 import pandas as pd
+import time
+import math
+
+# Parameters
+learning_rate = 0.0001 # 0.001
+training_iters = 100000 #100000
+batch_size = 128
+display_step = 10
 
 
 train_data_file = 'data/train.csv'
@@ -92,15 +100,64 @@ def get_input_dict(data_input, data_output, sequence_length, arg_inputs, arg_num
 
 	return in_data
 
+def variable_summaries(var, name):
+  """Attach a lot of summaries to a Tensor."""
+  with tf.name_scope('summaries'):
+    mean = tf.reduce_mean(var)
+    tf.scalar_summary('mean/' + name, mean)
+    with tf.name_scope('stddev'):
+      stddev = tf.sqrt(tf.reduce_sum(tf.square(var - mean)))
+    tf.scalar_summary('sttdev/' + name, stddev)
+    tf.scalar_summary('max/' + name, tf.reduce_max(var))
+    tf.scalar_summary('min/' + name, tf.reduce_min(var))
+    tf.histogram_summary(name, var)
+
+
 train_id, train_values, train_solutions, train_lengths, max_length = read_data_file(train_data_file)
 training_matrix = prepare_training_matrix(train_values, max_length)
 
+num_samples = len(train_lengths)
+print("samples: ", num_samples)
 
 NUM_EXAMPLES = 30000
+num_test = 3000;
 
-train_input = training_matrix[:NUM_EXAMPLES]
-train_output = train_solutions[:NUM_EXAMPLES]
-train_length = train_lengths[:NUM_EXAMPLES]
+train_threshold = 10000 # good for float64
+train_threshold = 1000 # good for float32
+
+keep_count = 0.0
+discard_count = 0.0
+
+num_train = num_samples - num_test
+
+num_batches = math.floor(num_train / batch_size)
+num_train = int(batch_size * num_batches)
+
+print('num_batches: ', num_batches)
+print('num_train: ', num_train)
+
+train_input  = np.zeros((num_train, max_length, 1))
+train_output = np.zeros((num_train, 1))
+train_length = np.zeros((num_train, 1))
+
+for i in range(num_train):
+    #if i % 1000 == 0:
+        #print(i)
+    max_value = train_solutions[i] #max(max(training_matrix[i]), train_solutions[i])
+    do_keep = max_value < train_threshold
+    if do_keep:
+        train_input[i]  = (training_matrix[i])
+        train_output[i] = (train_solutions[i])
+        train_length[i] = (train_lengths[i])
+        keep_count += 1.0
+    else:
+        discard_count += 1.0
+
+print('discarded: ', discard_count/keep_count)
+
+#train_input = training_matrix[:NUM_EXAMPLES]
+#train_output = train_solutions[:NUM_EXAMPLES]
+#train_length = train_lengths[:NUM_EXAMPLES]
 
 test_input = training_matrix[NUM_EXAMPLES:NUM_EXAMPLES+NUM_EXAMPLES]
 test_output = train_solutions[NUM_EXAMPLES:NUM_EXAMPLES+NUM_EXAMPLES]
@@ -127,6 +184,8 @@ frame_size = 1
 
 train_count = batch_size
 
+t = time.time()
+
 
 # https://tensorhub.com/aymericdamien/tensorflow-rnn
 # https://github.com/aymericdamien/TensorFlow-Examples/blob/master/notebooks/3_NeuralNetworks/recurrent_network.ipynb
@@ -137,11 +196,7 @@ To classify images using a reccurent neural network, we consider every image row
 Because MNIST image shape is 28*28px, we will then handle 28 sequences of 28 steps for every sample.
 '''
 
-# Parameters
-learning_rate = 0.0001 # 0.001
-training_iters = 100000 #100000
-batch_size = 128
-display_step = 10
+
 
 # Network Parameters
 n_input = 1 # MNIST data input (img shape: 28*28)
@@ -149,32 +204,36 @@ n_steps = max_length # timesteps
 n_hidden = 128 # hidden layer num of features
 n_classes = 1 # MNIST total classes (0-9 digits)
 
+num_layers = 3
 
-# tf Graph input
-graph_data_type = tf.float64
-x = tf.placeholder(graph_data_type, [None, n_steps, n_input])
-seq_length = tf.placeholder(tf.int32, [batch_size], name="SequenceLength")
+graph = tf.Graph()
 
-istate = tf.placeholder(graph_data_type, [batch_size, 2*n_hidden]) #state & cell => 2x n_hidden
+with graph.as_default():
+  # tf Graph input
+  graph_data_type = tf.float64
+  x = tf.placeholder(graph_data_type, [None, n_steps, n_input])
+  seq_length = tf.placeholder(tf.int32, [batch_size, 1], name="SequenceLength")
 
-y = tf.placeholder(graph_data_type, [None, n_classes])
+  istate = tf.placeholder(graph_data_type, [batch_size, 2*n_hidden]) #state & cell => 2x n_hidden
 
-_x = tf.verify_tensor_all_finite(x, "X contains invalid data", name="XValidation")
-_y = tf.verify_tensor_all_finite(y, "Y contains invalid data", name="YValidation")
+  y = tf.placeholder(graph_data_type, [None, n_classes])
 
-
-# Define weights
-weights = {
-    'hidden': tf.Variable(tf.random_normal([n_input, n_hidden], dtype=graph_data_type)), # Hidden layer weights
-    'out': tf.Variable(tf.random_normal([n_hidden, n_classes], dtype=graph_data_type))
-}
-biases = {
-    'hidden': tf.Variable(tf.random_normal([n_hidden], dtype=graph_data_type)),
-    'out': tf.Variable(tf.random_normal([n_classes], dtype=graph_data_type))
-}
+  _x = tf.verify_tensor_all_finite(x, "X contains invalid data", name="XValidation")
+  _y = tf.verify_tensor_all_finite(y, "Y contains invalid data", name="YValidation")
 
 
-def RNN(_X, _seq_length, _istate, _weights, _biases):
+  # Define weights
+  weights = {
+      'hidden': tf.Variable(tf.random_normal([n_input, n_hidden], dtype=graph_data_type)), #   Hidden layer weights
+      'out': tf.Variable(tf.random_normal([n_hidden, n_classes], dtype=graph_data_type))
+  }
+  biases = {
+      'hidden': tf.Variable(tf.random_normal([n_hidden], dtype=graph_data_type)),
+      'out': tf.Variable(tf.random_normal([n_classes], dtype=graph_data_type))
+  }
+
+
+  def RNN(_X, _seq_length, _istate, _weights, _biases):
 
     #_X = tf.verify_tensor_all_finite(_X, "-X contains invalid data???????", name="XValidation1")
 
@@ -189,49 +248,60 @@ def RNN(_X, _seq_length, _istate, _weights, _biases):
 
     # Define a lstm cell with tensorflow
     # , state_is_tuple=True
-    lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(n_hidden, forget_bias=0.5)
-    #istate = lstm_cell.zero_state(128, tf.float64)
+    lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(n_hidden, forget_bias=1.0, state_is_tuple=True)
 
-    num_layers = 3
+    # ('It took', 298.3749940395355, 'seconds to train for 3 epochs.')
     # http://r2rt.com/recurrent-neural-networks-in-tensorflow-ii.html
     # , state_is_tuple=True
-    lstm_cell = tf.nn.rnn_cell.MultiRNNCell([lstm_cell] * num_layers)
+    lstm_cell = tf.nn.rnn_cell.MultiRNNCell([lstm_cell] * num_layers , state_is_tuple=True)
 
     # Split data because rnn cell needs a list of inputs for the RNN inner loop
     _X = tf.split(0, n_steps, _X) # n_steps * (batch_size, n_hidden)
 
+    istate = lstm_cell.zero_state(batch_size, graph_data_type)
+    #istate = lstm_cell.zero_state(128, tf.float64)
+
     # Get lstm cell output
     # , sequence_length=_seq_length
-    outputs, states = tf.nn.rnn(lstm_cell, _X, initial_state=_istate)
+    outputs, states = tf.nn.rnn(lstm_cell, _X, initial_state=istate)
 
     # Linear activation
     # Get inner loop last output
     return tf.matmul(outputs[-1], _weights['out']) + _biases['out']
 
 
-pred_out = RNN(_x, seq_length, istate, weights, biases)
+  pred = RNN(_x, seq_length, istate, weights, biases)
 
-pred = tf.verify_tensor_all_finite(pred_out, "Pred contains invalid data", name="PredValidation")
+  #pred = tf.verify_tensor_all_finite(pred_out, "Pred contains invalid data", name="PredValidation")
 
-# Define loss and optimizer
-# Mean squared error
-tf_cost = tf.reduce_sum(tf.pow(pred-y, 2))/(2*max_length)
-#cost = tf.Print(tf_cost, [pred, _y, tf_cost], 'Cost', summarize=1000)
-cost = tf.Print(tf_cost, [tf_cost], 'Cost', summarize=1000)
+  # Define loss and optimizer
+  # Mean squared error
+  tf_cost = tf.reduce_sum(tf.pow(pred-y, 2))/(2*max_length) + 1e-3 * (tf.nn.l2_loss(weights['out']))
+  #cost = tf.Print(tf_cost, [pred, _y, tf_cost], 'Cost', summarize=1000)
+  cost = tf.Print(tf_cost, [tf_cost], 'Cost', summarize=1000)
 
-#cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(pred, y)) # Softmax loss
-optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost) # Adam Optimizer
+  #cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(pred, y)) # Softmax loss
+  optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost) # Adam Optimizer
 
-# Evaluate model
-correct_pred = tf.equal(tf.argmax(pred,1), tf.argmax(y,1))
-accuracy = tf.reduce_mean(tf.cast(correct_pred, graph_data_type))
+  # Evaluate model
+  correct_pred = tf.equal(tf.argmax(pred,1), tf.argmax(y,1))
+  accuracy = tf.reduce_mean(tf.cast(correct_pred, graph_data_type))
 
-# Initializing the variables
-init = tf.initialize_all_variables()
+print("It took", time.time() - t, "seconds to train for 3 epochs.")
 
 # Launch the graph
-with tf.Session() as sess:
+with tf.Session(graph=graph) as sess:
+    # Initializing the variables
+    init = tf.initialize_all_variables()
     sess.run(init)
+
+    ## Define summaries
+
+    # Merge all the summaries and write them out to /tmp/mnist_logs (by default)
+    merged = tf.merge_all_summaries()
+    log_dir = 'log/train/' + str(num_layers)
+    train_writer = tf.train.SummaryWriter(log_dir, sess.graph)
+
     step = 1
     ptr = 0
     # Keep training until reach max iterations
@@ -265,6 +335,11 @@ with tf.Session() as sess:
             # Calculate batch loss
             loss = sess.run(cost, feed_dict={x: batch_xs, y: batch_ys,
                                              istate: np.zeros((batch_size, 2*n_hidden))})
+
+	    tf.scalar_summary('cost', loss)
+            summary_str = sess.run(merged)
+            train_writer.add_summary(summary_str, step)
+
             print "Iter " + str(step*batch_size) + ", Minibatch Loss= " + "{:.6f}".format(loss) + \
                   ", Training Accuracy= " + "{:.5f}".format(acc)
         step += 1
