@@ -5,6 +5,8 @@ import tensorflow as tf
 import pandas as pd
 import time
 import math
+import pickle
+import os
 
 # Parameters
 learning_rate = 0.0001 # 0.001
@@ -113,47 +115,78 @@ def variable_summaries(var, name):
     tf.histogram_summary(name, var)
 
 
-train_id, train_values, train_solutions, train_lengths, max_length = read_data_file(train_data_file)
-training_matrix = prepare_training_matrix(train_values, max_length)
+def get_training_data(force=False):
+    set_filename = 'train.pickle'
+    key_in     = 'input'
+    key_out    = 'output'
+    key_length = 'length'
 
-num_samples = len(train_lengths)
-print("samples: ", num_samples)
+    if not os.path.exists(set_filename) or force:
+        train_id, train_values, train_solutions, train_lengths, max_length = read_data_file(train_data_file)
+        training_matrix = prepare_training_matrix(train_values, max_length)
+        num_samples = len(train_lengths)
+        print("samples: ", num_samples)
+        train_threshold = 10000 # good for float64
+        train_threshold = 1000 # good for float32
+        keep_count = 0.0
+        discard_count = 0.0
+        num_train = num_samples - num_test
+        num_batches = math.floor(num_train / batch_size)
+        num_train = int(batch_size * num_batches)
+        print('num_batches: ', num_batches)
+        print('num_train: ', num_train)
+        train_input  = np.zeros((num_train, max_length, 1))
+        train_output = np.zeros((num_train, 1))
+        train_length = np.zeros((num_train, 1))
+
+        for i in range(num_train):
+            #if i % 1000 == 0:
+                #print(i)
+            max_value = train_solutions[i] #max(max(training_matrix[i]), train_solutions[i])
+            do_keep = max_value < train_threshold
+            if do_keep:
+                train_input[i]  = (training_matrix[i])
+                train_output[i] = (train_solutions[i])
+                train_length[i] = (train_lengths[i])
+                keep_count += 1.0
+            else:
+                discard_count += 1.0
+
+        print('discarded: ', discard_count/keep_count)
+
+        dataset = {key_in: train_input, key_out: train_output, key_length: train_length}
+
+        try:
+            with open(set_filename, 'wb') as f:
+                print('Persist pickle file')
+                pickle.dump(dataset, f, pickle.HIGHEST_PROTOCOL)
+        except Exception as e:
+            print('Unable to save data to', set_filename, ':', e)
+
+        return train_input, train_output, train_length
+    else:
+        try:
+          with open(set_filename, 'rb') as f:
+	    print('Load persisted file')
+            train_data_set = pickle.load(f)
+            
+	    train_input = train_data_set[key_in]
+            train_output = train_data_set[key_out]
+            train_length = train_data_set[key_length]
+
+	    return train_input, train_output, train_length
+        except Exception as e:
+          print('Unable to process data from', set_filename, ':', e)
+          raise
+
+
 
 NUM_EXAMPLES = 30000
 num_test = 3000;
 
-train_threshold = 10000 # good for float64
-train_threshold = 1000 # good for float32
+train_input, train_output, train_length = get_training_data()
 
-keep_count = 0.0
-discard_count = 0.0
-
-num_train = num_samples - num_test
-
-num_batches = math.floor(num_train / batch_size)
-num_train = int(batch_size * num_batches)
-
-print('num_batches: ', num_batches)
-print('num_train: ', num_train)
-
-train_input  = np.zeros((num_train, max_length, 1))
-train_output = np.zeros((num_train, 1))
-train_length = np.zeros((num_train, 1))
-
-for i in range(num_train):
-    #if i % 1000 == 0:
-        #print(i)
-    max_value = train_solutions[i] #max(max(training_matrix[i]), train_solutions[i])
-    do_keep = max_value < train_threshold
-    if do_keep:
-        train_input[i]  = (training_matrix[i])
-        train_output[i] = (train_solutions[i])
-        train_length[i] = (train_lengths[i])
-        keep_count += 1.0
-    else:
-        discard_count += 1.0
-
-print('discarded: ', discard_count/keep_count)
+exit()
 
 #train_input = training_matrix[:NUM_EXAMPLES]
 #train_output = train_solutions[:NUM_EXAMPLES]
