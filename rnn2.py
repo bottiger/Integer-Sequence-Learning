@@ -289,18 +289,26 @@ with graph.as_default():
 
 print("It took", time.time() - t, "seconds to train for 3 epochs.")
 
+# Add ops to save and restore all the variables.
+saver = tf.train.Saver()
+
 # Launch the graph
 with tf.Session(graph=graph) as sess:
+
+    ## Define summaries
+    # Merge all the summaries and write them out to /tmp/mnist_logs (by default)
+    #tf.scalar_summary('cost', cost)
+    #merged = tf.merge_all_summaries()
+    #log_dir = 'log/train/' + str(num_layers)
+    #train_writer = tf.train.SummaryWriter(log_dir, sess.graph)
+
     # Initializing the variables
     init = tf.initialize_all_variables()
     sess.run(init)
 
-    ## Define summaries
-
-    # Merge all the summaries and write them out to /tmp/mnist_logs (by default)
-    merged = tf.merge_all_summaries()
-    log_dir = 'log/train/' + str(num_layers)
-    train_writer = tf.train.SummaryWriter(log_dir, sess.graph)
+    # Save the variables to disk.
+    save_path = saver.save(sess, "model/model.ckpt")
+    print("Model saved in file: %s" % save_path)
 
     step = 1
     ptr = 0
@@ -336,9 +344,9 @@ with tf.Session(graph=graph) as sess:
             loss = sess.run(cost, feed_dict={x: batch_xs, y: batch_ys,
                                              istate: np.zeros((batch_size, 2*n_hidden))})
 
-	    tf.scalar_summary('cost', loss)
-            summary_str = sess.run(merged)
-            train_writer.add_summary(summary_str, step)
+	    #tf.scalar_summary('cost', loss)
+            #summary_str = sess.run(merged)
+            #train_writer.add_summary(summary_str, step)
 
             print "Iter " + str(step*batch_size) + ", Minibatch Loss= " + "{:.6f}".format(loss) + \
                   ", Training Accuracy= " + "{:.5f}".format(acc)
