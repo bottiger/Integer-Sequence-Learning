@@ -14,6 +14,7 @@ training_iters = 100000 #100000
 batch_size = 128
 display_step = 10
 
+my_model_name = 'tmp/my-model.meta'
 
 train_data_file = 'data/train.csv'
 test_data_file = 'data/test.csv'
@@ -117,9 +118,10 @@ def variable_summaries(var, name):
 
 def get_training_data(name, amount, offset, force=False):
     set_filename = name + '.pickle'
-    key_in     = 'input'
-    key_out    = 'output'
-    key_length = 'length'
+    key_in         = 'input'
+    key_out        = 'output'
+    key_length     = 'length'
+    key_max_length = 'max_length'
 
     if not os.path.exists(set_filename) or force:
         train_id, train_values, train_solutions, train_lengths, max_length = read_data_file(train_data_file)
@@ -156,7 +158,7 @@ def get_training_data(name, amount, offset, force=False):
 
         print('discarded: ', discard_count/keep_count)
 
-        dataset = {key_in: train_input, key_out: train_output, key_length: train_length}
+        dataset = {key_in: train_input, key_out: train_output, key_length: train_length, key_max_length: max_length}
 
         try:
             with open(set_filename, 'wb') as f:
@@ -165,7 +167,7 @@ def get_training_data(name, amount, offset, force=False):
         except Exception as e:
             print('Unable to save data to', set_filename, ':', e)
 
-        return train_input, train_output, train_length
+        return train_input, train_output, train_length, max_length
     else:
         try:
           with open(set_filename, 'rb') as f:
@@ -175,21 +177,88 @@ def get_training_data(name, amount, offset, force=False):
 	    train_input = train_data_set[key_in]
             train_output = train_data_set[key_out]
             train_length = train_data_set[key_length]
+            max_length   = train_data_set[key_max_length]
 
-	    return train_input, train_output, train_length
+	    return train_input, train_output, train_length, max_length
         except Exception as e:
           print('Unable to process data from', set_filename, ':', e)
           raise
 
+def get_graph_data_type():
+  return tf.float64;
 
+def RNN(_X, _seq_length, _istate, _weights, _biases):
+
+    #_X = tf.verify_tensor_all_finite(_X, "-X contains invalid data???????", name="XValidation1")
+
+    # input shape: (batch_size, n_steps, n_input)
+    _X = tf.transpose(_X, [1, 0, 2])  # permute n_steps and batch_size
+    # Reshape to prepare input to hidden activation
+    _X = tf.reshape(_X, [-1, n_input]) # (n_steps*batch_size, n_input)
+    # Linear activation
+    _X = tf.matmul(_X, _weights['hidden']) + _biases['hidden']
+
+    #_X = tf.verify_tensor_all_finite(_X, "-X contains invalid data!!!!!!!", name="XValidation2")
+
+    # Define a lstm cell with tensorflow
+    # , state_is_tuple=True
+    lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(n_hidden, forget_bias=1.0, state_is_tuple=True)
+
+    # ('It took', 298.3749940395355, 'seconds to train for 3 epochs.')
+    # http://r2rt.com/recurrent-neural-networks-in-tensorflow-ii.html
+    # , state_is_tuple=True
+    lstm_cell = tf.nn.rnn_cell.MultiRNNCell([lstm_cell] * num_layers , state_is_tuple=True)
+
+    # Split data because rnn cell needs a list of inputs for the RNN inner loop
+    _X = tf.split(0, n_steps, _X) # n_steps * (batch_size, n_hidden)
+
+    istate = lstm_cell.zero_state(batch_size, get_graph_data_type())
+    #istate = lstm_cell.zero_state(128, tf.float64)
+
+    # Get lstm cell output
+    # , sequence_length=_seq_length
+    outputs, states = tf.nn.rnn(lstm_cell, _X, initial_state=istate)
+
+    # Linear activation
+    # Get inner loop last output
+    return tf.matmul(outputs[-1], _weights['out']) + _biases['out']
+
+def persist_graph(graph_in, filename_in=my_model_name):
+  # Launch the graph
+  print('Preparing to export model')
+  with tf.Session(graph=graph_in) as sess:
+
+    # Initializing the variables
+    init = tf.initialize_all_variables()
+    sess.run(init)
+
+    ptr = 0
+    # inputs batch
+    batch_xs = train_input[ptr:ptr+batch_size]
+
+    # output batch
+    batch_ys = train_output[ptr:ptr+batch_size]
+
+    sess.run(optimizer, feed_dict={x: batch_xs, y: batch_ys, seq_length: _seq_length,
+                                       istate: np.zeros((batch_size, 2*n_hidden))})
+
+    print('exporting graph...')
+    meta_graph_def = tf.train.export_meta_graph(filename=filename_in)
+    print('exporting complete!')
+
+def get_model_filename():
+  return my_model_name + '.meta'
+
+def have_persisted_model():
+  return os.path.exists(get_model_filename())
 
 NUM_EXAMPLES = 30000
 num_test = 3000;
 
 # dataset has between 110720 and 113844 samples
-train_input, train_output, train_length = get_training_data('train', 50000, 0)
-test_input, test_output, test_length = get_training_data('test', 25000, 50000)
-val_input, val_output, val_length = get_training_data('val', 25000, 75000)
+train_input, train_output, train_length, max_length = get_training_data('train', 50000, 0)
+test_input, test_output, test_length, max_length = get_training_data('test', 25000, 50000)
+val_input, val_output, val_length, max_length = get_training_data('val', 25000, 75000)
 
 
 #train_input = training_matrix[:NUM_EXAMPLES]
@@ -221,8 +290,6 @@ frame_size = 1
 
 train_count = batch_size
 
-t = time.time()
-
 
 # https://tensorhub.com/aymericdamien/tensorflow-rnn
 # https://github.com/aymericdamien/TensorFlow-Examples/blob/master/notebooks/3_NeuralNetworks/recurrent_network.ipynb
@@ -241,13 +308,18 @@ n_steps = max_length # timesteps
 n_hidden = 128 # hidden layer num of features
 n_classes = 1 # MNIST total classes (0-9 digits)
 
-num_layers = 3
+num_layers = 6
+
+do_load_persisted_model = False #have_persisted_model()
 
 graph = tf.Graph()
 
+print('Generating the graph')
 with graph.as_default():
+  t = time.time()
+
   # tf Graph input
-  graph_data_type = tf.float64
+  graph_data_type = get_graph_data_type()
   x = tf.placeholder(graph_data_type, [None, n_steps, n_input])
   seq_length = tf.placeholder(tf.int32, [batch_size, 1], name="SequenceLength")
 
@@ -269,44 +341,6 @@ with graph.as_default():
       'out': tf.Variable(tf.random_normal([n_classes], dtype=graph_data_type))
   }
 
-
-  def RNN(_X, _seq_length, _istate, _weights, _biases):
-
-    #_X = tf.verify_tensor_all_finite(_X, "-X contains invalid data???????", name="XValidation1")
-
-    # input shape: (batch_size, n_steps, n_input)
-    _X = tf.transpose(_X, [1, 0, 2])  # permute n_steps and batch_size
-    # Reshape to prepare input to hidden activation
-    _X = tf.reshape(_X, [-1, n_input]) # (n_steps*batch_size, n_input)
-    # Linear activation
-    _X = tf.matmul(_X, _weights['hidden']) + _biases['hidden']
-
-    #_X = tf.verify_tensor_all_finite(_X, "-X contains invalid data!!!!!!!", name="XValidation2")
-
-    # Define a lstm cell with tensorflow
-    # , state_is_tuple=True
-    lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(n_hidden, forget_bias=1.0, state_is_tuple=True)
-
-    # ('It took', 298.3749940395355, 'seconds to train for 3 epochs.')
-    # http://r2rt.com/recurrent-neural-networks-in-tensorflow-ii.html
-    # , state_is_tuple=True
-    lstm_cell = tf.nn.rnn_cell.MultiRNNCell([lstm_cell] * num_layers , state_is_tuple=True)
-
-    # Split data because rnn cell needs a list of inputs for the RNN inner loop
-    _X = tf.split(0, n_steps, _X) # n_steps * (batch_size, n_hidden)
-
-    istate = lstm_cell.zero_state(batch_size, graph_data_type)
-    #istate = lstm_cell.zero_state(128, tf.float64)
-
-    # Get lstm cell output
-    # , sequence_length=_seq_length
-    outputs, states = tf.nn.rnn(lstm_cell, _X, initial_state=istate)
-
-    # Linear activation
-    # Get inner loop last output
-    return tf.matmul(outputs[-1], _weights['out']) + _biases['out']
-
-
   pred = RNN(_x, seq_length, istate, weights, biases)
 
   #pred = tf.verify_tensor_all_finite(pred_out, "Pred contains invalid data", name="PredValidation")
@@ -323,11 +357,17 @@ with graph.as_default():
   # Evaluate model
   correct_pred = tf.equal(tf.argmax(pred,1), tf.argmax(y,1))
   accuracy = tf.reduce_mean(tf.cast(correct_pred, graph_data_type))
+  print("It took", time.time() - t, "seconds to train for " + str(num_layers) + " epochs.")
 
-print("It took", time.time() - t, "seconds to train for 3 epochs.")
+
+#if not have_persisted_model():
+  #graph = gen_graph(graph)
+  #persist_graph(graph)
+#else:
+#  print('Skipping creating a graph, we should have one on disk')
 
 # Add ops to save and restore all the variables.
-saver = tf.train.Saver()
+#saver = tf.train.Saver()
 
 # Launch the graph
 with tf.Session(graph=graph) as sess:
@@ -343,9 +383,18 @@ with tf.Session(graph=graph) as sess:
     init = tf.initialize_all_variables()
     sess.run(init)
 
+    if do_load_persisted_model:
+        t_start = time.time()
+        print('Load persisted model')
+        new_saver = tf.train.import_meta_graph(get_model_filename())
+        new_saver.restore(sess, my_model_name)
+        print("Persisted model loaded! ", time.time() - t, "seconds")
+    #print('export graph')
+    #meta_graph_def = tf.train.export_meta_graph(filename='tmp/my-model.meta')
+
     # Save the variables to disk.
-    save_path = saver.save(sess, "model/model.ckpt")
-    print("Model saved in file: %s" % save_path)
+    #save_path = saver.save(sess, "model/model.ckpt")
+    #print("Model saved in file: %s" % save_path)
 
     step = 1
     ptr = 0
