@@ -7,9 +7,11 @@ import time
 import math
 import pickle
 import os
+import argparse
+
+from model import Model
 
 # Parameters
-learning_rate = 0.0001 # 0.001
 training_iters = 100000 #100000
 batch_size = 128
 display_step = 10
@@ -231,11 +233,11 @@ def RNN(_X, _seq_length, _istate, _weights, _biases):
 
     # Get lstm cell output
     # , sequence_length=_seq_length
-    outputs, states = tf.nn.rnn(lstm_cell, _X, initial_state=istate)
+    outputs, states = tf.nn.rnn(lstm_cell, _X, initial_state=_istate)
 
     # Linear activation
     # Get inner loop last output
-    return tf.matmul(outputs[-1], _weights['out']) + _biases['out']
+    return tf.matmul(outputs[-1], _weights['out']) + _biases['out'], states
 
 def persist_graph(graph_in, filename_in=my_model_name):
   # Launch the graph
@@ -321,57 +323,7 @@ Because MNIST image shape is 28*28px, we will then handle 28 sequences of 28 ste
 
 do_load_persisted_model = False #have_persisted_model()
 
-graph = tf.Graph()
-
 print('Generating the graph (~100 seconds pr layer)')
-with graph.as_default():
-  t = time.time()
-
-  # tf Graph input
-  graph_data_type = get_graph_data_type()
-  x = tf.placeholder(graph_data_type, [None, n_steps, n_input], name="InputX")
-  seq_length = tf.placeholder(tf.int32, [None, 1], name="SequenceLength")
-
-  istate = tf.placeholder(graph_data_type, [None, 2*n_hidden], name="InputState") #state & cell => 2x n_hidden
-
-  y = tf.placeholder(graph_data_type, [None, n_classes], name="InputY")
-
-  _x = tf.verify_tensor_all_finite(x, "X contains invalid data", name="XValidation")
-  _y = tf.verify_tensor_all_finite(y, "Y contains invalid data", name="YValidation")
-
-
-  # Define weights
-  weights = {
-      'hidden': tf.Variable(tf.random_normal([n_input, n_hidden], dtype=graph_data_type)), #   Hidden layer weights
-      'out': tf.Variable(tf.random_normal([n_hidden, n_classes], dtype=graph_data_type))
-  }
-  biases = {
-      'hidden': tf.Variable(tf.random_normal([n_hidden], dtype=graph_data_type)),
-      'out': tf.Variable(tf.random_normal([n_classes], dtype=graph_data_type))
-  }
-
-  pred = RNN(x, seq_length, istate, weights, biases)
-
-  #pred = tf.verify_tensor_all_finite(pred_out, "Pred contains invalid data", name="PredValidation")
-
-  # Define loss and optimizer
-  # Mean squared error
-  reg_cost = tf.reduce_sum(1e-1 * (tf.nn.l2_loss(weights['out'])))
-  cost = tf.reduce_sum(tf.pow(pred-y, 2))/(2*max_length) + reg_cost
-  #cost = tf.Print(tf_cost, [tf_cost], 'Cost', summarize=1000)
-
-  #cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(pred, y)) # Softmax loss
-  optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(cost) # Adam Optimizer
-
-  # Evaluate model
-  correct_pred = tf.equal(tf.argmax(pred,1), tf.argmax(y,1))
-  accuracy = tf.reduce_mean(tf.cast(correct_pred, graph_data_type))
-
-  tf.scalar_summary('cost', cost)
-  tf.scalar_summary('reg_cost', reg_cost)
-
-  print("It took", time.time() - t, "seconds to train for " + str(num_layers) + " layers.")
-
 
 #if not have_persisted_model():
   #graph = gen_graph(graph)
@@ -382,8 +334,17 @@ with graph.as_default():
 # Add ops to save and restore all the variables.
 #saver = tf.train.Saver()
 
+parser = argparse.ArgumentParser()
+
+parser.add_argument('--model', type=str, default='lstm', help='rnn, gru, or lstm')
+parser.add_argument('--data_type', type=str, default='tf.float32', help='tf.float16, tf.float32')
+parser.add_argument('--batch_size', type=int, default=10, help='minibatch size')
+
+args = parser.parse_args()
+model = Model(args)
+
 # Launch the graph
-with tf.Session(graph=graph) as sess:
+with tf.Session() as sess:
 
     ## Define summaries
     # Merge all the summaries and write them out to /tmp/mnist_logs (by default)
@@ -428,11 +389,19 @@ with tf.Session(graph=graph) as sess:
 
     step = 1
     ptr = 0
+
+    #print('state: ', state.shape)
+    state = model.initial_state.eval()
+
     # Keep training until reach max iterations
     while step < num_train/batch_size: #step * batch_size < training_iters:
         #batch_xs, batch_ys = mnist.train.next_batch(batch_size)
         # Reshape data to get 28 seq of 28 elements
         #batch_xs = batch_xs.reshape((batch_size, n_steps, n_input))
+
+	#fetches = [model.optimizer, model.final_states]
+	fetches = [model.out, model.final_states]
+        feed_dict = {}
 
 	# inputs batch
 	batch_xs = train_input[ptr:ptr+batch_size]
@@ -443,42 +412,63 @@ with tf.Session(graph=graph) as sess:
 
 	ptr += batch_size
 
-	#print("step ", step)
+	#print("pre state ", state[:5][1])
+
+        feed_dict[model.x] = batch_xs
+        feed_dict[model.y] = batch_ys
+        feed_dict[model.seq_length] = _seq_length
+	feed_dict[model.initial_state] = state
+
+        #print('batch_xs: ', batch_xs.shape)
+
+        #for i, (c, h) in enumerate(model.initial_state):
+        #  feed_dict[c] = state[i].c
+	#  feed_dict[h] = state[i].h
 
         # Fit training using batch data
-        sess.run(optimizer, feed_dict={x: batch_xs, y: batch_ys, seq_length: _seq_length,
-                                       istate: np.zeros((batch_size, 2*n_hidden))})
+	mout, state = sess.run(fetches, feed_dict)
+        #c , state = sess.run([model.optimizer, model.final_states], feed_dict={
+	#						model.x: batch_xs, 
+	#						model.y: batch_ys, 
+	#						model.seq_length: _seq_length,
+        #                               			model.initial_state: state})
+
+	print("post state ", mout.shape)
+        #print("i: ", i.shape)
+        #print("c: ", c.shape)
+
+
         if step % display_step == 0:
             # Calculate batch accuracy
-            acc = sess.run(accuracy, feed_dict={x: batch_xs, y: batch_ys,
-                                                istate: np.zeros((batch_size, 2*n_hidden))})
+            #acc = sess.run(accuracy, feed_dict={x: batch_xs, y: batch_ys,
+            #                                    last_state: state})
 
             val_xs = val_input[ptr:ptr+batch_size]
             val_ys = val_output[ptr:ptr+batch_size]
             val_seq_length = val_length[ptr:ptr+batch_size]
 
             # Calculate batch loss
-            batch_loss = sess.run(cost, feed_dict={x: batch_xs, y: batch_ys,seq_length: _seq_length,
-                                             istate: np.zeros((batch_size, 2*n_hidden))})
+            #batch_loss = sess.run(cost, feed_dict={x: batch_xs, y: batch_ys,seq_length: _seq_length,
+            #                                 last_state: state})
 
-            batch_reg_loss = sess.run(reg_cost, feed_dict={x: batch_xs, y: batch_ys,seq_length: _seq_length,
-                                             istate: np.zeros((batch_size, 2*n_hidden))})
+            #batch_reg_loss = sess.run(reg_cost, feed_dict={x: batch_xs, y: batch_ys,seq_length: _seq_length,
+            #                                 last_state: state})
 
-            loss = sess.run(cost, feed_dict={x: val_xs, y: val_ys,seq_length: val_seq_length,
-                                             istate: np.zeros((batch_size, 2*n_hidden))})
+            #loss = sess.run(cost, feed_dict={x: val_xs, y: val_ys,seq_length: val_seq_length,
+            #                                 last_state: np.zeros((batch_size, 2*n_hidden))})
 
-            reg_loss = sess.run(reg_cost, feed_dict={x: val_xs, y: val_ys,seq_length: val_seq_length,
-                                             istate: np.zeros((batch_size, 2*n_hidden))})
+            #reg_loss = sess.run(reg_cost, feed_dict={x: val_xs, y: val_ys,seq_length: val_seq_length,
+            #                                 last_state: state})
 
 	    
-	    if loss<1000000:
-                summary_str = sess.run(merged, feed_dict={x: val_xs, y: val_ys,
-                                             istate: np.zeros((batch_size, 2*n_hidden))})
-                train_writer.add_summary(summary_str, step)
+	    #if loss<1000000:
+            #    summary_str = sess.run(merged, feed_dict={x: val_xs, y: val_ys,
+            #                                 last_state: state})
+            #    train_writer.add_summary(summary_str, step)
 
-            print "Iter " + str(step) + " of " + str(num_train/batch_size)
-            print "Batch cost= " + "{:.6f}".format(batch_loss) + ", Reg cost= " + "{:.6f}".format(batch_reg_loss)
-            print "Validation cost= " + "{:.6f}".format(loss) + ", Reg cost= " + "{:.6f}".format(reg_loss)
+            #print "Iter " + str(step) + " of " + str(num_train/batch_size)
+            #print "Batch cost= " + "{:.6f}".format(batch_loss) + ", Reg cost= " + "{:.6f}".format(batch_reg_loss)
+            #print "Validation cost= " + "{:.6f}".format(loss) + ", Reg cost= " + "{:.6f}".format(reg_loss)
         step += 1
     print "Optimization Finished!"
     # Calculate accuracy for 256 mnist test images
@@ -488,12 +478,12 @@ with tf.Session(graph=graph) as sess:
     test_data = test_input[:test_len]
     test_label = test_output[:test_len]
 
-    test_res = sess.run(accuracy, 
-			feed_dict={	x: test_data, 
-					y: test_label,
-                                        istate: np.zeros((test_len,2*n_hidden))
-					}
-			)
+    #test_res = sess.run(accuracy, 
+#			feed_dict={	x: test_data, 
+#					y: test_label,
+#                                        last_state: np.zeros((test_len,2*n_hidden))
+					#}
+	#		)
 
     print "Testing Accuracy:", test_res
 
