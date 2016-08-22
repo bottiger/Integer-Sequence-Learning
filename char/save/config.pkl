@@ -27,7 +27,7 @@ p11
 I50000
 sS'learning_rate'
 p12
-F0.002
+F0.20000000000000001
 sS'save_dir'
 p13
 S'save'

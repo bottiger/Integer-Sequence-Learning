@@ -86,7 +86,7 @@ def tf_data_length(data):
     return length
 
 def get_input_dict(data_input, data_output, sequence_length, arg_inputs, arg_num_inputs):
-	"""This function is suppose to return a dict which can be used to 
+	"""This function is suppose to return a dict which can be used to
 	initialize all the placeholders in the graph.
 	"""
 	in_data = {}
@@ -166,7 +166,7 @@ def get_training_data(args, name, amount, offset, force=False):
           with open(set_filename, 'rb') as f:
 	    print('Load persisted file: ', name)
             train_data_set = pickle.load(f)
-            
+
 	    train_input = train_data_set[key_in]
             train_output = train_data_set[key_out]
             train_length = train_data_set[key_length]
@@ -208,12 +208,12 @@ def main():
                        help='save frequency')
     parser.add_argument('--grad_clip', type=float, default=5.,
                        help='clip gradients at this value')
-    parser.add_argument('--learning_rate', type=float, default=0.002,
+    parser.add_argument('--learning_rate', type=float, default=0.2, # 0.002
                        help='learning rate')
     parser.add_argument('--decay_rate', type=float, default=0.97,
-                       help='decay rate for rmsprop')                       
+                       help='decay rate for rmsprop')
     parser.add_argument('--init_from', type=str, default=None,
-                       help="""continue training from saved model at this path. Path must contain files saved by previous training process: 
+                       help="""continue training from saved model at this path. Path must contain files saved by previous training process:
                             'config.pkl'        : configuration;
                             'chars_vocab.pkl'   : vocabulary definitions;
                             'checkpoint'        : paths to model file(s) (created by tf).
@@ -238,10 +238,10 @@ def train(args):
 
     data_loader = TextLoader(args.data_dir, args.batch_size, args.seq_length)
     args.vocab_size = 50000 #data_loader.vocab_size
-    
+
     # check compatibility if training is continued from previously saved model
     if args.init_from is not None:
-        # check if all necessary files exist 
+        # check if all necessary files exist
         assert os.path.isdir(args.init_from)," %s must be a a path" % args.init_from
         assert os.path.isfile(os.path.join(args.init_from,"config.pkl")),"config.pkl file does not exist in path %s"%args.init_from
         assert os.path.isfile(os.path.join(args.init_from,"chars_vocab.pkl")),"chars_vocab.pkl.pkl file does not exist in path %s" % args.init_from
@@ -255,18 +255,18 @@ def train(args):
         need_be_same=["model","rnn_size","num_layers","seq_length"]
         for checkme in need_be_same:
             assert vars(saved_model_args)[checkme]==vars(args)[checkme],"Command line argument and saved model disagree on '%s' "%checkme
-        
+
         # open saved vocab/dict and check if vocabs/dicts are compatible
         with open(os.path.join(args.init_from, 'chars_vocab.pkl')) as f:
             saved_chars, saved_vocab = cPickle.load(f)
         assert saved_chars==data_loader.chars, "Data and loaded model disagreee on character set!"
         assert saved_vocab==data_loader.vocab, "Data and loaded model disagreee on dictionary mappings!"
-        
+
     with open(os.path.join(args.save_dir, 'config.pkl'), 'wb') as f:
         cPickle.dump(args, f)
     with open(os.path.join(args.save_dir, 'chars_vocab.pkl'), 'wb') as f:
         cPickle.dump((data_loader.chars, data_loader.vocab), f)
-        
+
     model = Model(args)
 
     print("num_layers: ", args.num_layers)

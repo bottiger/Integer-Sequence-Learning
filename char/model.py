@@ -58,7 +58,7 @@ class Model():
         self.reg_cost = tf.reduce_sum(1e-1 * (tf.nn.l2_loss(softmax_w)))
         target = tf.cast(self.targets, tf.float32)
 	self.target_vector = tf.reshape(target, [-1])
-        loss = tf.pow(self.logits / self.target_vector, 2)
+        loss = tf.abs(self.logits-self.target_vector)
 
         self.cost = tf.reduce_sum(loss) / args.batch_size / args.seq_length  + self.reg_cost
         self.final_state = last_state
